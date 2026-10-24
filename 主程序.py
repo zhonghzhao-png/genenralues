@@ -995,26 +995,35 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
                         score = get_qk_score(student_id, name, legacy_alias)
                     merged.at[row_index, col] = score
 
-    # 按各次测试总权重 × 本次基础/中档/难题权重计算综合成绩。
-    denominator = 0.0
+    # 方案A：每场考试先按基础/中档/难题各自满分计算得分率，再按本场难度权重合成为百分制。
+    # 不同考试满分不同不会直接影响结果；考试间再按“总权重”加权平均。
+    exam_percent_scores = {}
     for item in normalized_tests:
         name = item['name']
         difficulty = item['difficulty']
-        means = exam_means[name]
-        denominator += item['weight'] * sum(means[i] * difficulty[i] for i in range(3))
-    if denominator <= 0:
-        raise ValueError('用于归一化的各次考试均分权重之和为 0，请检查“各项均分”行和权重。')
+        full_marks = exam_means[name]
+        active_categories = [i for i, mark in enumerate(full_marks) if mark > 0]
+        if not active_categories:
+            raise ValueError(f'考试“{name}”的基础/中档/难题满分均为 0，无法换算成百分制。')
 
-    score = pd.Series(0.0, index=merged.index)
+        # 某个难度类别没有题目时，该类别不参与本场合成，并对剩余难度权重重新归一化。
+        active_weight_sum = sum(difficulty[i] for i in active_categories)
+        if active_weight_sum <= 0:
+            raise ValueError(f'考试“{name}”在有题目的难度类别上没有有效权重，请调整难度权重。')
+
+        exam_score = pd.Series(0.0, index=merged.index)
+        for i in active_categories:
+            col = exam_columns[name][i]
+            student_points = pd.to_numeric(merged[col], errors='coerce').fillna(0.0)
+            rate = (student_points / float(full_marks[i])).clip(lower=0.0, upper=1.0)
+            exam_score += rate * (difficulty[i] / active_weight_sum)
+        exam_percent_scores[name] = exam_score * 100.0
+
+    # 所有单场成绩均已转换为百分制，因此直接按考试间权重合成。
+    merged['加权平均'] = 0.0
     for item in normalized_tests:
-        name = item['name']
-        difficulty = item['difficulty']
-        cols = exam_columns[name]
-        score += item['weight'] * sum(
-            pd.to_numeric(merged[col], errors='coerce').fillna(0) * difficulty[i]
-            for i, col in enumerate(cols)
-        )
-    merged['加权平均'] = (score * 100.0 / denominator).round(3)
+        merged['加权平均'] += item['weight'] * exam_percent_scores[item['name']]
+    merged['加权平均'] = merged['加权平均'].round(3)
 
     # 同分优先级可在配置中用考试名称列表指定；未列出的考试按多次测试配置顺序补齐。
     priority = 分层排名配置.get('多次测试同分优先级', [])
