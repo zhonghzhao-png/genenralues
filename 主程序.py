@@ -1037,9 +1037,9 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
                         score = get_qk_score(student_id, name, legacy_alias)
                     merged.at[row_index, col] = score
 
-    # 先把每场考试的基础/中档/难题各项成绩分别按各自满分换算成百分制，
-    # 再按该场考试配置的难度权重合成 100 分制成绩，最后参与各场考试之间的总权重计算。
-    # 例如某类别满分为 120、学生得分为 96，则先换算为 96/120*100 = 80 分。
+    # 先按原有的难题/中档/基础难度权重合成该场考试的加权原始分，
+    # 再用同一组难度权重计算加权满分，并将该场考试统一换算为百分制。
+    # 不要把基础、中档、难题各自先单独换算成 100 分，否则会改变原有难度比例的含义。
     exam_percent_scores = {}
     for item in normalized_tests:
         name = item['name']
@@ -1053,16 +1053,25 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
         if active_weight_sum <= 0:
             raise ValueError(f'考试“{name}”的有效难度权重之和必须大于 0，无法换算成百分制。')
 
-        weighted_percent_score = pd.Series(0.0, index=merged.index)
+        weighted_raw_score = pd.Series(0.0, index=merged.index)
+        weighted_full_mark = 0.0
         for i in active_categories:
             col = exam_columns[name][i]
             student_points = pd.to_numeric(merged[col], errors='coerce').fillna(0.0)
-            category_percent = student_points / float(full_marks[i]) * 100.0
-            weighted_percent_score += category_percent * (difficulty[i] / active_weight_sum)
+            category_weight = difficulty[i] / active_weight_sum
+            weighted_raw_score += student_points * category_weight
+            weighted_full_mark += float(full_marks[i]) * category_weight
 
-        exam_percent_scores[name] = weighted_percent_score
+        if weighted_full_mark <= 0:
+            raise ValueError(f'考试“{name}”的加权满分必须大于 0，无法换算成百分制。')
+
+        # 无论原始总满分是 100 分还是超过 100 分，都统一转为百分制，
+        # 确保每场考试参与跨考试加权时处于同一分数尺度。
+        exam_percent_scores[name] = weighted_raw_score / weighted_full_mark * 100.0
+        raw_total_full_mark = sum(float(full_marks[i]) for i in active_categories)
         print(
-            f"  {name}: 各类别先按各自满分换算为百分制，再按难度权重合成（有效权重和={active_weight_sum:.4f}）"
+            f"  {name}: 原始类别满分合计={raw_total_full_mark:.2f}，"
+            f"按难度权重合成后统一换算为百分制（加权满分={weighted_full_mark:.2f}）"
         )
 
     # 所有单场成绩均已转换为百分制，因此直接按考试间权重合成。
