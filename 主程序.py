@@ -1037,11 +1037,9 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
                         score = get_qk_score(student_id, name, legacy_alias)
                     merged.at[row_index, col] = score
 
-    # 每场考试先计算“分层加权原始成绩”，再按“100 / 分层加权满分”换算成百分制。
-    # 加权原始成绩 = 基础得分×基础权重 + 中档得分×中档权重 + 难题得分×难题权重。
-    # 分层加权满分 = 基础满分×基础权重 + 中档满分×中档权重 + 难题满分×难题权重。
-    # 换算系数 = 100 / 分层加权满分；百分制成绩 = 分层加权原始成绩×换算系数。
-    # 这样每场考试都以该场实际的分层加权满分换算为 100 分，再按考试间总权重合成。
+    # 先把每场考试的基础/中档/难题各项成绩分别按各自满分换算成百分制，
+    # 再按该场考试配置的难度权重合成 100 分制成绩，最后参与各场考试之间的总权重计算。
+    # 例如某类别满分为 120、学生得分为 96，则先换算为 96/120*100 = 80 分。
     exam_percent_scores = {}
     for item in normalized_tests:
         name = item['name']
@@ -1051,21 +1049,20 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
         if not active_categories:
             raise ValueError(f'考试“{name}”没有“满分大于 0 且难度权重大于 0”的分层类别，无法换算成百分制。')
 
-        weighted_full_mark = sum(float(full_marks[i]) * difficulty[i] for i in active_categories)
-        if weighted_full_mark <= 0:
-            raise ValueError(f'考试“{name}”的分层加权满分必须大于 0，无法换算成百分制。')
-        conversion_factor = 100.0 / weighted_full_mark
+        active_weight_sum = sum(difficulty[i] for i in active_categories)
+        if active_weight_sum <= 0:
+            raise ValueError(f'考试“{name}”的有效难度权重之和必须大于 0，无法换算成百分制。')
 
-        weighted_score = pd.Series(0.0, index=merged.index)
+        weighted_percent_score = pd.Series(0.0, index=merged.index)
         for i in active_categories:
             col = exam_columns[name][i]
             student_points = pd.to_numeric(merged[col], errors='coerce').fillna(0.0)
-            weighted_score += student_points * difficulty[i]
+            category_percent = student_points / float(full_marks[i]) * 100.0
+            weighted_percent_score += category_percent * (difficulty[i] / active_weight_sum)
 
-        exam_percent_scores[name] = weighted_score * conversion_factor
+        exam_percent_scores[name] = weighted_percent_score
         print(
-            f"  {name}: 分层加权满分={weighted_full_mark:.4f}, "
-            f"百分制换算系数={conversion_factor:.6f}"
+            f"  {name}: 各类别先按各自满分换算为百分制，再按难度权重合成（有效权重和={active_weight_sum:.4f}）"
         )
 
     # 所有单场成绩均已转换为百分制，因此直接按考试间权重合成。
