@@ -613,7 +613,7 @@ def process_exam_data(考试名称, is_first=False):
     dchushu = max_rowbchushu = wbchushu.max_row
     max_columns = wbchushu.max_column
 
-    # 配置比例可调整；归一化后形成累计分值阈值，默认仍为 60% / 90%。
+    # 配置比例可调整，默认基础/中档/难题为 60% / 30% / 10%。
     比例 = [
         max(0.0, float(题目难度分段配置.get('基础题比例', 0.6))),
         max(0.0, float(题目难度分段配置.get('中档题比例', 0.3))),
@@ -623,25 +623,54 @@ def process_exam_data(考试名称, is_first=False):
     if 比例总和 <= 0:
         比例 = [0.6, 0.3, 0.1]
         比例总和 = 1.0
-    基础累计阈值 = 比例[0] / 比例总和
-    中档累计阈值 = (比例[0] + 比例[1]) / 比例总和
 
-    # 题目已按得分率从高到低排序；按累计分值比例确定切分点。
+    # 当前题目列按得分率从高到低排列，因此从最右侧（得分率最低）开始找难题。
+    # 难题先按其目标比例累计满分，达到或超过阈值即停止；再从剩余题目中找中档题；
+    # 中档题按“中档比例 /（基础比例 + 中档比例）”计算剩余部分的目标比例；
+    # 最后剩余题目全部归为基础题。题目不可拆分，实际比例允许超过目标值。
     题目数 = min(len(colchushu), len(_各项分值))
     if 题目数 == 0:
         raise ValueError(f'{考试名称}没有识别到有效题目列或各项分值为空')
 
     题目分值 = pd.to_numeric(dfchushu.iloc[dchushu - 3, :题目数], errors='coerce').fillna(0)
     总题目分值 = float(题目分值.sum())
+    难题目标比例 = 比例[2] / 比例总和
+    中档剩余比例 = 比例[1] / (比例[0] + 比例[1]) if (比例[0] + 比例[1]) > 0 else 1.0
+
     if 总题目分值 <= 0:
-        # 数据异常时按题目数量切分，避免边界变量未定义。
-        j_1 = max(1, min(题目数, round(题目数 * 基础累计阈值)))
-        j_2 = max(j_1, min(题目数, round(题目数 * 中档累计阈值)))
+        # 满分数据异常时，退化为按题目数量近似切分，同样从难题端开始。
+        难题题目数 = max(1, min(题目数, round(题目数 * 难题目标比例)))
+        难题起点 = 题目数 - 难题题目数
+        剩余题目数 = 难题起点
+        中档题目数 = (
+            max(0, min(剩余题目数, round(剩余题目数 * 中档剩余比例)))
+            if 剩余题目数 > 0 else 0
+        )
+        j_1 = 难题起点 - 中档题目数
+        j_2 = 难题起点
     else:
-        累计比例 = (题目分值.cumsum() / 总题目分值).to_numpy()
-        j_1 = next((i + 1 for i, v in enumerate(累计比例) if v >= 基础累计阈值), 题目数)
-        j_2 = next((i + 1 for i, v in enumerate(累计比例) if v >= 中档累计阈值), 题目数)
-        j_2 = max(j_1, j_2)
+        # 第一步：从得分率最低的一端向左累计，达到难题目标比例即确定难题边界。
+        难题累计比例 = (题目分值.iloc[::-1].cumsum().to_numpy() / 总题目分值)
+        难题题目数 = next(
+            (i + 1 for i, v in enumerate(难题累计比例) if v >= 难题目标比例),
+            题目数,
+        )
+        j_2 = 题目数 - 难题题目数
+
+        # 第二步：只在剩余题目中，从得分率较低的一端向左累计中档题。
+        剩余题目分值 = 题目分值.iloc[:j_2]
+        剩余总分值 = float(剩余题目分值.sum())
+        if 剩余总分值 <= 0 or j_2 <= 0:
+            j_1 = j_2
+        else:
+            中档累计比例 = (
+                剩余题目分值.iloc[::-1].cumsum().to_numpy() / 剩余总分值
+            )
+            中档题目数 = next(
+                (i + 1 for i, v in enumerate(中档累计比例) if v >= 中档剩余比例),
+                j_2,
+            )
+            j_1 = j_2 - 中档题目数
 
     j_3 = 题目数
     wbchushu.cell(row=1, column=1, value='基础题')
@@ -856,6 +885,11 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
     if len(tests) < 2:
         raise ValueError('多次测试加权排名至少需要配置两次测试。')
 
+    # 防止考试总表中选入了尚未配置分段工作表的考试，避免后续出现隐晦的 KeyError/worksheet 错误。
+    missing_exam_config = [item.get('名称', '<未命名>') for item in tests if item.get('名称') not in 考试配置]
+    if missing_exam_config:
+        raise ValueError('以下参与分层的考试尚未在数据分析.py 的“考试配置”中定义，无法确定分段工作表：' + '、'.join(missing_exam_config))
+
     normalized_tests = []
     total_exam_weight = 0.0
     for item in tests:
@@ -904,8 +938,7 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
         exam_columns[name] = [f'{name}基础', f'{name}中档', f'{name}难题']
 
         try:
-            # 与旧版 df.iloc[:i+2] 后取最后一行的方式一致：
-            # “各项均分”标记行之后一行才是用于归一化的均分数值行。
+            # “各项均分”标记行之后一行是“各项分值”，即基础/中档/难题各自的满分。
             mean_row = raw.iloc[min(marker + 1, len(raw) - 1), [4, 5, 6]]
             exam_means[name] = [
                 float(pd.to_numeric(v, errors='coerce')) if pd.notna(v) else 0.0
@@ -990,26 +1023,42 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
                         score = get_qk_score(student_id, name, legacy_alias)
                     merged.at[row_index, col] = score
 
-    # 按各次测试总权重 × 本次基础/中档/难题权重计算综合成绩。
-    denominator = 0.0
+    # 每场考试先计算“分层加权原始成绩”，再按“100 / 分层加权满分”换算成百分制。
+    # 加权原始成绩 = 基础得分×基础权重 + 中档得分×中档权重 + 难题得分×难题权重。
+    # 分层加权满分 = 基础满分×基础权重 + 中档满分×中档权重 + 难题满分×难题权重。
+    # 换算系数 = 100 / 分层加权满分；百分制成绩 = 分层加权原始成绩×换算系数。
+    # 这样每场考试都以该场实际的分层加权满分换算为 100 分，再按考试间总权重合成。
+    exam_percent_scores = {}
     for item in normalized_tests:
         name = item['name']
         difficulty = item['difficulty']
-        means = exam_means[name]
-        denominator += item['weight'] * sum(means[i] * difficulty[i] for i in range(3))
-    if denominator <= 0:
-        raise ValueError('用于归一化的各次考试均分权重之和为 0，请检查“各项均分”行和权重。')
+        full_marks = exam_means[name]
+        active_categories = [i for i, mark in enumerate(full_marks) if mark > 0 and difficulty[i] > 0]
+        if not active_categories:
+            raise ValueError(f'考试“{name}”没有“满分大于 0 且难度权重大于 0”的分层类别，无法换算成百分制。')
 
-    score = pd.Series(0.0, index=merged.index)
-    for item in normalized_tests:
-        name = item['name']
-        difficulty = item['difficulty']
-        cols = exam_columns[name]
-        score += item['weight'] * sum(
-            pd.to_numeric(merged[col], errors='coerce').fillna(0) * difficulty[i]
-            for i, col in enumerate(cols)
+        weighted_full_mark = sum(float(full_marks[i]) * difficulty[i] for i in active_categories)
+        if weighted_full_mark <= 0:
+            raise ValueError(f'考试“{name}”的分层加权满分必须大于 0，无法换算成百分制。')
+        conversion_factor = 100.0 / weighted_full_mark
+
+        weighted_score = pd.Series(0.0, index=merged.index)
+        for i in active_categories:
+            col = exam_columns[name][i]
+            student_points = pd.to_numeric(merged[col], errors='coerce').fillna(0.0)
+            weighted_score += student_points * difficulty[i]
+
+        exam_percent_scores[name] = weighted_score * conversion_factor
+        print(
+            f"  {name}: 分层加权满分={weighted_full_mark:.4f}, "
+            f"百分制换算系数={conversion_factor:.6f}"
         )
-    merged['加权平均'] = (score * 100.0 / denominator).round(3)
+
+    # 所有单场成绩均已转换为百分制，因此直接按考试间权重合成。
+    merged['加权平均'] = 0.0
+    for item in normalized_tests:
+        merged['加权平均'] += item['weight'] * exam_percent_scores[item['name']]
+    merged['加权平均'] = merged['加权平均'].round(3)
 
     # 同分优先级可在配置中用考试名称列表指定；未列出的考试按多次测试配置顺序补齐。
     priority = 分层排名配置.get('多次测试同分优先级', [])
@@ -1059,13 +1108,27 @@ def create_layer_ranking():
     """创建分层总排名和分层设置工作表"""
     from 数据分析 import 分层排名配置, 显示选项
 
-    if 分层排名配置.get('多次测试'):
+    # 只要存在新版“多次测试”键，就绝不回退到旧版 A/B 分层逻辑；即使列表为空也要明确报错。
+    if '多次测试' in 分层排名配置:
         if not 分层排名配置.get('启用', True):
-            raise ValueError('多次测试配置未通过校验，请检查数据分析.py 中的多次测试配置诊断信息。')
+            try:
+                from 数据分析 import 多次测试配置错误
+                详情 = '；'.join(多次测试配置错误) if 多次测试配置错误 else '请检查考试总表中参与分层的考试是否均已录入。'
+            except Exception:
+                详情 = '请检查数据分析.py 中的多次测试配置诊断信息。'
+            raise ValueError(f'多次测试分层配置未通过校验：{详情}')
+        if not 分层排名配置.get('多次测试'):
+            raise ValueError('没有可用于分层的考试。请至少设置两场考试“录入”: True 且“基准”非 None。')
         return _create_multi_test_layer_ranking(分层排名配置, 显示选项)
 
     if not 分层排名配置.get('启用', True):
         print("\n⚠️ 分层排名未启用（分层排名配置['启用'] = False），跳过创建")
+        return None
+
+    # 防止新旧版本的配置文件混用：新版已取消基准 A/B，不应进入旧版逻辑。
+    if '基准A分段' not in 分层排名配置 or '基准B分段' not in 分层排名配置:
+        print("\n⚠️ 分层排名配置与主程序版本不一致：未检测到有效的‘多次测试’配置，且旧版基准 A/B 配置已移除。")
+        print("请将主程序.py 和 数据分析.py 一并更新为同一版本，并确认考试总表中至少有两场考试设置为‘录入’: True。")
         return None
 
     print("\n正在创建分层总排名和分层设置...")
