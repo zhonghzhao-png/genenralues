@@ -848,9 +848,221 @@ def process_exam_data(考试名称, is_first=False):
     _安全保存工作簿(wb, '数据分析.xlsx')
 
 
+def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
+    """按用户手动配置的多次测试权重生成分层总排名和分层设置。"""
+    from 数据分析 import 考试配置
+
+    tests = 分层排名配置.get('多次测试', [])
+    if len(tests) < 2:
+        raise ValueError('多次测试加权排名至少需要配置两次测试。')
+
+    normalized_tests = []
+    total_exam_weight = 0.0
+    for item in tests:
+        name = item['名称']
+        weight = float(item['总权重'])
+        difficulty = [float(x) for x in item['难度权重']]
+        if weight <= 0 or len(difficulty) != 3 or any(x < 0 for x in difficulty) or sum(difficulty) <= 0:
+            raise ValueError(f'考试“{name}”的权重配置无效。')
+        difficulty_sum = sum(difficulty)
+        difficulty = [x / difficulty_sum for x in difficulty]
+        normalized_tests.append({
+            'name': name,
+            'weight': weight,
+            'difficulty': difficulty,
+            'sheet': 考试配置.get(name, {}).get('表格', [name + '分段'])[0],
+        })
+        total_exam_weight += weight
+    if total_exam_weight <= 0:
+        raise ValueError('多次测试总权重之和必须大于 0。')
+    for item in normalized_tests:
+        item['weight'] /= total_exam_weight
+
+    print('多次测试加权排名：')
+    for item in normalized_tests:
+        print(f"  {item['name']}: 总权重={item['weight']:.4f}, 难度权重={item['difficulty']}")
+
+    merged = None
+    exam_means = {}
+    exam_columns = {}
+    for item in normalized_tests:
+        name = item['name']
+        raw = pd.read_excel('数据分析.xlsx', sheet_name=item['sheet'])
+        marker = next((i for i, value in enumerate(raw.iloc[:, 0]) if str(value).strip() == '各项均分'), None)
+        if marker is None:
+            raise ValueError(f'工作表“{item["sheet"]}”中找不到“各项均分”行，请确认考试分段表已生成。')
+        if raw.shape[1] < 7:
+            raise ValueError(f'工作表“{item["sheet"]}”列数不足，无法读取基础/中档/难题数据。')
+
+        # 与旧版 A/B 逻辑保持相同的列位置约定：第 1、2、5、6、7 列。
+        selected = raw.iloc[:marker, [0, 1, 4, 5, 6]].copy()
+        selected.columns = ['学号', '姓名', f'{name}基础', f'{name}中档', f'{name}难题']
+        selected['学号'] = pd.to_numeric(selected['学号'], errors='coerce')
+        selected = selected.dropna(subset=['学号'])
+        selected['学号'] = selected['学号'].astype('int64')
+        selected = selected.drop_duplicates(subset=['学号'], keep='first')
+        exam_columns[name] = [f'{name}基础', f'{name}中档', f'{name}难题']
+
+        try:
+            # 与旧版 df.iloc[:i+2] 后取最后一行的方式一致：
+            # “各项均分”标记行之后一行才是用于归一化的均分数值行。
+            mean_row = raw.iloc[min(marker + 1, len(raw) - 1), [4, 5, 6]]
+            exam_means[name] = [
+                float(pd.to_numeric(v, errors='coerce')) if pd.notna(v) else 0.0
+                for v in mean_row.tolist()
+            ]
+        except Exception:
+            exam_means[name] = [0.0, 0.0, 0.0]
+
+        if merged is None:
+            merged = selected
+        else:
+            merged = pd.merge(merged, selected, on='学号', how='outer', suffixes=('', '_重复'))
+            duplicate_name = '姓名_重复'
+            if duplicate_name in merged.columns:
+                if '姓名' in merged.columns:
+                    merged['姓名'] = merged['姓名'].fillna(merged[duplicate_name])
+                merged.drop(columns=[duplicate_name], inplace=True)
+
+    if merged is None or merged.empty:
+        raise ValueError('多次测试没有读取到有效学生数据。')
+
+    # 使用配置名单补入缺考学生；姓名优先采用参考名单。
+    缺考配置 = 分层排名配置.get('缺考赋分', {})
+    if 缺考配置.get('启用', False):
+        for setting in 缺考配置.get('学号列表赋分', []):
+            for raw_id in str(setting.get('学号', '')).replace('，', ',').split(','):
+                raw_id = raw_id.strip()
+                if raw_id.isdigit() and int(raw_id) not in set(merged['学号'].tolist()):
+                    merged = pd.concat([merged, pd.DataFrame([{'学号': int(raw_id), '姓名': f'学号{raw_id}'}])], ignore_index=True)
+
+    名单路径 = 分层排名配置.get('名单路径') or 分层排名配置.get('参考名单')
+    if not 名单路径:
+        try:
+            from 数据分析 import 控制页配置
+            名单路径 = 控制页配置.get('名单路径')
+        except Exception:
+            名单路径 = None
+    if 名单路径 and os.path.exists(名单路径):
+        try:
+            roster = pd.read_excel(名单路径)
+            id_col = next((c for c in roster.columns if '学号' in str(c) or 'id' in str(c).lower() or '学籍号' in str(c)), None)
+            name_col = next((c for c in roster.columns if '姓名' in str(c) or 'name' in str(c).lower()), None)
+            if id_col and name_col:
+                roster = roster[[id_col, name_col]].copy()
+                roster.columns = ['学号', '参考姓名']
+                roster['学号'] = pd.to_numeric(roster['学号'], errors='coerce')
+                roster = roster.dropna(subset=['学号'])
+                roster['学号'] = roster['学号'].astype('int64').drop_duplicates()
+                roster = roster.drop_duplicates(subset=['学号'], keep='first')
+                merged = pd.merge(merged, roster, on='学号', how='outer')
+                if '姓名' not in merged.columns:
+                    merged['姓名'] = merged['参考姓名']
+                else:
+                    merged['姓名'] = merged['参考姓名'].fillna(merged['姓名'])
+                merged.drop(columns=['参考姓名'], inplace=True)
+        except Exception as exc:
+            print(f'  ⚠️ 参考名单读取失败：{exc}')
+
+    merged['姓名'] = merged['姓名'].fillna('未知').astype(str).str.strip()
+    merged['学号'] = pd.to_numeric(merged['学号'], errors='coerce')
+    merged = merged.dropna(subset=['学号'])
+    merged['学号'] = merged['学号'].astype('int64')
+
+    # 缺考处理：优先使用本次测试名称 + 动态难度列名；旧配置别名仍兼容 A/B。
+    for item in normalized_tests:
+        name = item['name']
+        for difficulty_name, col in zip(['基础', '中档', '难题'], exam_columns[name]):
+            if col not in merged.columns:
+                merged[col] = 0
+            missing = merged[col].isna()
+            if missing.any():
+                alias = f'{name}{difficulty_name}'
+                legacy_alias = None
+                if normalized_tests.index(item) == 0:
+                    legacy_alias = f'基准A{difficulty_name}'
+                elif normalized_tests.index(item) == 1:
+                    legacy_alias = f'基准B{difficulty_name}'
+                for row_index in merged.index[missing]:
+                    student_id = int(merged.at[row_index, '学号'])
+                    score = get_qk_score(student_id, name, alias)
+                    if score == 0 and legacy_alias:
+                        score = get_qk_score(student_id, name, legacy_alias)
+                    merged.at[row_index, col] = score
+
+    # 按各次测试总权重 × 本次基础/中档/难题权重计算综合成绩。
+    denominator = 0.0
+    for item in normalized_tests:
+        name = item['name']
+        difficulty = item['difficulty']
+        means = exam_means[name]
+        denominator += item['weight'] * sum(means[i] * difficulty[i] for i in range(3))
+    if denominator <= 0:
+        raise ValueError('用于归一化的各次考试均分权重之和为 0，请检查“各项均分”行和权重。')
+
+    score = pd.Series(0.0, index=merged.index)
+    for item in normalized_tests:
+        name = item['name']
+        difficulty = item['difficulty']
+        cols = exam_columns[name]
+        score += item['weight'] * sum(
+            pd.to_numeric(merged[col], errors='coerce').fillna(0) * difficulty[i]
+            for i, col in enumerate(cols)
+        )
+    merged['加权平均'] = (score * 100.0 / denominator).round(3)
+
+    # 同分优先级可在配置中用考试名称列表指定；未列出的考试按多次测试配置顺序补齐。
+    priority = 分层排名配置.get('多次测试同分优先级', [])
+    ordered_names = []
+    for name in priority:
+        if name in exam_columns and name not in ordered_names:
+            ordered_names.append(name)
+    for item in normalized_tests:
+        if item['name'] not in ordered_names:
+            ordered_names.append(item['name'])
+    sort_cols = ['加权平均']
+    for difficulty_name in ['难题', '中档', '基础']:
+        sort_cols.extend([f'{name}{difficulty_name}' for name in ordered_names])
+    sort_cols.append('学号')
+    ascending = [False] * (len(sort_cols) - 1) + [True]
+    sort_df = merged.copy()
+    sort_df['_加权平均排序键'] = pd.to_numeric(sort_df['加权平均'], errors='coerce').round(3)
+    sort_cols[0] = '_加权平均排序键'
+    sort_df = sort_df.sort_values(by=sort_cols, ascending=ascending, kind='mergesort', na_position='last')
+    merged = sort_df.drop(columns=['_加权平均排序键']).reset_index(drop=True)
+
+    # 先保留完整排名，再按分界学号拆成左右两组用于分层设置。
+    with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
+        merged.to_excel(writer, sheet_name='分层总排名', index=False)
+
+    exclude_text = 分层排名配置.get('排除学号', '')
+    excluded = [int(x.strip()) for x in str(exclude_text).replace('，', ',').split(',') if x.strip().isdigit()]
+    layer_df = merged[~merged['学号'].isin(excluded)].copy() if excluded else merged.copy()
+    boundary = int(分层排名配置.get('分界学号', 0))
+    group_a = layer_df.loc[layer_df['学号'] <= boundary].copy().reset_index(drop=True)
+    group_b = layer_df.loc[layer_df['学号'] > boundary].copy().reset_index(drop=True)
+    layer_setting = pd.concat([group_a, group_b], axis=1)
+    layer_setting.insert(len(group_a.columns), '分隔', None)
+
+    with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
+        layer_setting.to_excel(writer, sheet_name='分层设置', index=False)
+
+    if 显示选项.get('显示数据统计', True):
+        print(f'  参与排名人数：{len(merged)}')
+        print(f'  排除后参与分层人数：{len(layer_df)}')
+        print(f'  分界学号：{boundary}；A组：{len(group_a)}；B组：{len(group_b)}')
+    print('多次测试加权排名和分层设置已生成。')
+    return layer_setting
+
+
 def create_layer_ranking():
     """创建分层总排名和分层设置工作表"""
     from 数据分析 import 分层排名配置, 显示选项
+
+    if 分层排名配置.get('多次测试'):
+        if not 分层排名配置.get('启用', True):
+            raise ValueError('多次测试配置未通过校验，请检查数据分析.py 中的多次测试配置诊断信息。')
+        return _create_multi_test_layer_ranking(分层排名配置, 显示选项)
 
     if not 分层排名配置.get('启用', True):
         print("\n⚠️ 分层排名未启用（分层排名配置['启用'] = False），跳过创建")
