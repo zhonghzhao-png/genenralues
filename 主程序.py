@@ -856,6 +856,11 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
     if len(tests) < 2:
         raise ValueError('多次测试加权排名至少需要配置两次测试。')
 
+    # 防止考试总表中选入了尚未配置分段工作表的考试，避免后续出现隐晦的 KeyError/worksheet 错误。
+    missing_exam_config = [item.get('名称', '<未命名>') for item in tests if item.get('名称') not in 考试配置]
+    if missing_exam_config:
+        raise ValueError('以下参与分层的考试尚未在数据分析.py 的“考试配置”中定义，无法确定分段工作表：' + '、'.join(missing_exam_config))
+
     normalized_tests = []
     total_exam_weight = 0.0
     for item in tests:
