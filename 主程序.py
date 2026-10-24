@@ -1,5 +1,6 @@
 ﻿# ==================== 主程序.py - 所有核心函数 ====================
 import os
+import time
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -14,11 +15,24 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
 def _安全保存工作簿(wb, 路径='数据分析.xlsx'):
-    """先保存到同目录临时 xlsx，再原子替换目标文件，降低中断造成文件损坏的风险。"""
+    """先保存到同目录临时 xlsx，再重试替换目标文件，降低短暂文件占用导致的保存失败。"""
     临时路径 = 路径 + '.tmp.xlsx'
     try:
         wb.save(临时路径)
-        os.replace(临时路径, 路径)
+        最后异常 = None
+        for 尝试次数 in range(5):
+            try:
+                os.replace(临时路径, 路径)
+                最后异常 = None
+                break
+            except PermissionError as e:
+                最后异常 = e
+                if 尝试次数 < 4:
+                    time.sleep(1)
+        if 最后异常 is not None:
+            raise PermissionError(
+                f"无法覆盖“{路径}”。请关闭 Excel 中打开的该文件，并检查文件是否被同步软件占用后重试。"
+            ) from 最后异常
     finally:
         if os.path.exists(临时路径):
             try:
