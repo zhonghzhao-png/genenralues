@@ -1084,8 +1084,11 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
     with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
         merged.to_excel(writer, sheet_name='分层总排名', index=False)
 
-    exclude_text = 分层排名配置.get('排除学号', '')
-    excluded = [int(x.strip()) for x in str(exclude_text).replace('，', ',').split(',') if x.strip().isdigit()]
+    exclude_text = 分层排名配置.get('排除学号', [])
+    if isinstance(exclude_text, (list, tuple, set)):
+        excluded = [int(x) for x in exclude_text if str(x).strip().isdigit()]
+    else:
+        excluded = [int(x.strip()) for x in str(exclude_text).replace('，', ',').split(',') if x.strip().isdigit()]
     layer_df = merged[~merged['学号'].isin(excluded)].copy() if excluded else merged.copy()
     boundary = int(分层排名配置.get('分界学号', 0))
     group_a = layer_df.loc[layer_df['学号'] <= boundary].copy().reset_index(drop=True)
@@ -1323,13 +1326,16 @@ def create_layer_ranking():
 
     df = pd.read_excel('数据分析.xlsx', sheet_name='分层总排名')
 
-    排除学号字符串 = 分层排名配置.get('排除学号', '')
-    if 排除学号字符串:
+    排除学号配置 = 分层排名配置.get('排除学号', [])
+    if 排除学号配置:
         排除学号列表 = []
-        for x in 排除学号字符串.replace('，', ',').split(','):
-            x = x.strip()
-            if x.isdigit():
-                排除学号列表.append(int(x))
+        if isinstance(排除学号配置, (list, tuple, set)):
+            排除学号列表 = [int(x) for x in 排除学号配置 if str(x).strip().isdigit()]
+        else:
+            for x in str(排除学号配置).replace('，', ',').split(','):
+                x = x.strip()
+                if x.isdigit():
+                    排除学号列表.append(int(x))
         if 排除学号列表:
             df['学号'] = pd.to_numeric(df['学号'], errors='coerce')
             原始人数 = len(df)
