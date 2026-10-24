@@ -909,8 +909,7 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
         exam_columns[name] = [f'{name}基础', f'{name}中档', f'{name}难题']
 
         try:
-            # 与旧版 df.iloc[:i+2] 后取最后一行的方式一致：
-            # “各项均分”标记行之后一行才是用于归一化的均分数值行。
+            # “各项均分”标记行之后一行是“各项分值”，即基础/中档/难题各自的满分。
             mean_row = raw.iloc[min(marker + 1, len(raw) - 1), [4, 5, 6]]
             exam_means[name] = [
                 float(pd.to_numeric(v, errors='coerce')) if pd.notna(v) else 0.0
