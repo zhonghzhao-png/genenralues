@@ -1059,9 +1059,17 @@ def create_layer_ranking():
     """创建分层总排名和分层设置工作表"""
     from 数据分析 import 分层排名配置, 显示选项
 
-    if 分层排名配置.get('多次测试'):
+    # 只要存在新版“多次测试”键，就绝不回退到旧版 A/B 分层逻辑；即使列表为空也要明确报错。
+    if '多次测试' in 分层排名配置:
         if not 分层排名配置.get('启用', True):
-            raise ValueError('多次测试配置未通过校验，请检查数据分析.py 中的多次测试配置诊断信息。')
+            try:
+                from 数据分析 import 多次测试配置错误
+                详情 = '；'.join(多次测试配置错误) if 多次测试配置错误 else '请检查考试总表中参与分层的考试是否均已录入。'
+            except Exception:
+                详情 = '请检查数据分析.py 中的多次测试配置诊断信息。'
+            raise ValueError(f'多次测试分层配置未通过校验：{详情}')
+        if not 分层排名配置.get('多次测试'):
+            raise ValueError('没有可用于分层的考试。请至少设置两场考试“录入”: True 且“基准”非 None。')
         return _create_multi_test_layer_ranking(分层排名配置, 显示选项)
 
     if not 分层排名配置.get('启用', True):
