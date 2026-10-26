@@ -564,7 +564,7 @@ def 计算知识点失分率(学生姓名, 考试名称列表, 考试配置, 考
 # ==================== 数据录入函数 ====================
 
 def process_exam_data(考试名称, is_first=False):
-    from 数据分析 import 考试配置, 题目难度分段配置
+    from 数据分析 import 考试配置, 题目难度分段配置, 考试总表
 
     config = 考试配置[考试名称]
     _总成绩 = config['总成绩']
@@ -887,6 +887,10 @@ def process_exam_data(考试名称, is_first=False):
                         end_row=stat_row_grade, end_column=total_cols)
     ws_layer.cell(row=stat_row_grade, column=2, value=avg0)
     ws_layer.cell(row=stat_row_grade, column=2).font = Font(bold=True)
+
+    # “对比”控制该场考试的“分层”工作表是否显示；隐藏时仍然生成并保留数据。
+    是否显示分层表 = 考试总表.get(考试名称, {}).get('对比', True)
+    ws_layer.sheet_state = 'visible' if 是否显示分层表 else 'hidden'
 
     _安全保存工作簿(wb, '数据分析.xlsx')
 
@@ -1419,8 +1423,8 @@ def 录入数据(考试名称, is_first=False, apply_layers=False):
 # ==================== 排名变化函数 ====================
 
 def 生成排名变化(考试字典=None, 考试名称=None, 名单路径=None,
-                  列名映射=None, 名单列名=None, 输出sheet="排名变化"):
-    print("\n正在生成排名变化...")
+                  列名映射=None, 名单列名=None, 输出sheet="排名"):
+    print("\n正在生成排名...")
 
     if 考试字典 is not None:
         考试列表 = list(考试字典.keys())
@@ -1628,7 +1632,7 @@ def 生成排名变化(考试字典=None, 考试名称=None, 名单路径=None,
         else:
             with pd.ExcelWriter('数据分析.xlsx', engine='openpyxl') as writer:
                 df_result.to_excel(writer, sheet_name=输出sheet, index=False)
-        print(f"\n✅ 排名变化已写入 '数据分析.xlsx' 的 '{输出sheet}' Sheet")
+        print(f"\n✅ 排名已写入 '数据分析.xlsx' 的 '{输出sheet}' Sheet")
         
         # ==================== 👇 新增：调整格式 ====================
         import openpyxl
@@ -1653,7 +1657,7 @@ def 生成排名变化(考试字典=None, 考试名称=None, 名单路径=None,
                         target_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             
             _安全保存工作簿(wb_fmt, '数据分析.xlsx')
-            print("  ✅ 已调整排名变化页对比列的宽度与自动换行")
+            print("  ✅ 已调整排名页对比列的宽度与自动换行")
         # ==========================================================
 
     except Exception as e:
