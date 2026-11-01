@@ -1,35 +1,27 @@
 @echo off
 setlocal
-chcp 65001
 cd /d "%~dp0"
 
 echo ==========================================
-echo 正在启动成绩分析 GUI
-echo 当前目录：%CD%
+echo Starting the score analysis GUI...
+echo Working directory: %CD%
 echo ==========================================
 echo.
 
-if not exist "%~dp0图形界面.py" (
-    echo [错误] 当前文件夹中找不到 图形界面.py
-    echo 请确认启动GUI.bat与图形界面.py放在同一个文件夹。
-    pause
-    exit /b 1
-)
-
 where py
 if errorlevel 1 (
-    echo 未找到 Python Launcher，尝试使用 python...
-    python "%~dp0图形界面.py"
+    echo Python Launcher was not found. Trying python...
+    python -c "import pathlib,runpy; files=[p for p in pathlib.Path('.').glob('*.py') if 'class ScoreAnalysisGUI' in p.read_text(encoding='utf-8-sig')]; assert files, 'GUI script not found'; runpy.run_path(str(files[0]), run_name='__main__')"
 ) else (
-    py -3 "%~dp0图形界面.py"
+    py -3 -c "import pathlib,runpy; files=[p for p in pathlib.Path('.').glob('*.py') if 'class ScoreAnalysisGUI' in p.read_text(encoding='utf-8-sig')]; assert files, 'GUI script not found'; runpy.run_path(str(files[0]), run_name='__main__')"
 )
 
 if errorlevel 1 (
     echo.
-    echo [启动失败] 请查看上面的错误信息。
+    echo [ERROR] GUI startup failed. Check the messages above.
 ) else (
     echo.
-    echo 程序已退出。
+    echo GUI process has exited.
 )
 
 pause
