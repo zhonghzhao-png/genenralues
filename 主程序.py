@@ -1084,25 +1084,41 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
         merged['加权平均'] += item['weight'] * exam_percent_scores[item['name']]
     merged['加权平均'] = merged['加权平均'].round(3)
 
-    # 同分优先级可在配置中用考试名称列表指定；未列出的考试按多次测试配置顺序补齐。
-    priority = 分层排名配置.get('多次测试同分优先级', [])
-    ordered_names = []
-    for name in priority:
-        if name in exam_columns and name not in ordered_names:
-            ordered_names.append(name)
-    for item in normalized_tests:
-        if item['name'] not in ordered_names:
-            ordered_names.append(item['name'])
-    sort_cols = ['加权平均']
+    # 分层设置同分排序优先级：
+    # 加权平均 → 难题总和 → 各场难题 → 中档总和 → 各场中档
+    # → 基础总和 → 各场基础 → 学号。
+    # “各场”严格按 normalized_tests（考试录入/配置）顺序逐场比较。
+    ordered_names = [item['name'] for item in normalized_tests]
+    sort_df = merged.copy()
+    sort_cols = []
+
+    # 加权平均按控制页显示精度（3 位小数）判定同分。
+    sort_df['_加权平均排序键'] = pd.to_numeric(
+        sort_df['加权平均'], errors='coerce'
+    ).round(3)
+    sort_cols.append('_加权平均排序键')
+
+    # 每个难度先比较所有考试的得分总和，再按考试录入顺序逐场比较。
     for difficulty_name in ['难题', '中档', '基础']:
-        sort_cols.extend([f'{name}{difficulty_name}' for name in ordered_names])
+        exam_score_columns = [f'{name}{difficulty_name}' for name in ordered_names]
+        for col in exam_score_columns:
+            if col not in sort_df.columns:
+                sort_df[col] = 0
+            sort_df[col] = pd.to_numeric(sort_df[col], errors='coerce').fillna(0)
+        total_sort_column = f'_{difficulty_name}总和排序键'
+        sort_df[total_sort_column] = sort_df[exam_score_columns].sum(axis=1)
+        sort_cols.append(total_sort_column)
+        sort_cols.extend(exam_score_columns)
+
     sort_cols.append('学号')
     ascending = [False] * (len(sort_cols) - 1) + [True]
-    sort_df = merged.copy()
-    sort_df['_加权平均排序键'] = pd.to_numeric(sort_df['加权平均'], errors='coerce').round(3)
-    sort_cols[0] = '_加权平均排序键'
-    sort_df = sort_df.sort_values(by=sort_cols, ascending=ascending, kind='mergesort', na_position='last')
-    merged = sort_df.drop(columns=['_加权平均排序键']).reset_index(drop=True)
+    sort_df = sort_df.sort_values(
+        by=sort_cols, ascending=ascending, kind='mergesort', na_position='last'
+    )
+    临时排序列 = [
+        '_加权平均排序键', '_难题总和排序键', '_中档总和排序键', '_基础总和排序键'
+    ]
+    merged = sort_df.drop(columns=临时排序列, errors='ignore').reset_index(drop=True)
 
     # 先保留完整排名，再按分界学号拆成左右两组用于分层设置。
     with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
