@@ -18,11 +18,10 @@ else:
     BASE_DIR = _project_root
     print('⚠️ 未找到默认下载目录，使用项目目录')
 
-# GUI 可通过环境变量覆盖默认输出目录；未覆盖时输出到 BASE_DIR\日常输出。
-_GUI_OUTPUT_DIR = os.environ.get('成绩分析输出目录')
-OUTPUT_DIR = os.path.abspath(os.path.expanduser(_GUI_OUTPUT_DIR)) if _GUI_OUTPUT_DIR else os.path.join(BASE_DIR, '日常输出')
+# GUI 中保存的“文件输出目录”优先；首次使用时默认 BASE_DIR\日常输出。
+文件输出目录 = r'./日常输出'
+OUTPUT_DIR = os.path.abspath(os.path.expanduser(文件输出目录))
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-文件输出目录 = OUTPUT_DIR
 os.environ['成绩分析输出目录'] = OUTPUT_DIR
 
 if _project_root not in sys.path:
