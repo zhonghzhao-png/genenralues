@@ -3,12 +3,27 @@ import sys
 import os
 
 _project_root = os.path.dirname(os.path.abspath(__file__))
-# ========== 文件输出目录 ==========
-# 可填写绝对路径，也可填写相对于本项目文件夹的路径；默认仍输出到项目文件夹。
-文件输出目录 = r'./'
-_输出目录绝对路径 = os.path.abspath(os.path.join(_project_root, 文件输出目录))
-os.makedirs(_输出目录绝对路径, exist_ok=True)
-os.environ['成绩分析输出目录'] = _输出目录绝对路径
+# ========== 路径设置（自动判断单位/家里） ==========
+# 优先使用用户指定的常用目录；若均不存在，则使用项目目录。
+UNIT_DIR = r'C:\Users\admin\Downloads'
+HOME_DIR = r'C:\Users\Administrator\Downloads'
+
+if os.path.isdir(UNIT_DIR):
+    BASE_DIR = UNIT_DIR
+    print('✅ 单位')
+elif os.path.isdir(HOME_DIR):
+    BASE_DIR = HOME_DIR
+    print('✅ 家里')
+else:
+    BASE_DIR = _project_root
+    print('⚠️ 未找到默认下载目录，使用项目目录')
+
+# GUI 可通过环境变量覆盖默认输出目录；未覆盖时输出到 BASE_DIR\日常输出。
+_GUI_OUTPUT_DIR = os.environ.get('成绩分析输出目录')
+OUTPUT_DIR = os.path.abspath(os.path.expanduser(_GUI_OUTPUT_DIR)) if _GUI_OUTPUT_DIR else os.path.join(BASE_DIR, '日常输出')
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+文件输出目录 = OUTPUT_DIR
+os.environ['成绩分析输出目录'] = OUTPUT_DIR
 
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
@@ -513,7 +528,8 @@ if __name__ == '__main__':
                 隐藏前列=控制页配置.get('隐藏前列', True)
             )
         except Exception as e:
-            print(f"  ⚠️ 生成控制页时出错: {e}")
+            print(f"  ❌ 生成控制页失败，详细原因：{type(e).__name__}: {e}")
+            raise
 
     # 4. 应用格式
     if 格式配置.get('启用', True):
