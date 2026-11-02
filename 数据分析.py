@@ -3,6 +3,13 @@ import sys
 import os
 
 _project_root = os.path.dirname(os.path.abspath(__file__))
+# ========== 文件输出目录 ==========
+# 可填写绝对路径，也可填写相对于本项目文件夹的路径；默认仍输出到项目文件夹。
+文件输出目录 = r'./'
+_输出目录绝对路径 = os.path.abspath(os.path.join(_project_root, 文件输出目录))
+os.makedirs(_输出目录绝对路径, exist_ok=True)
+os.environ['成绩分析输出目录'] = _输出目录绝对路径
+
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
