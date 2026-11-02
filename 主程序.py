@@ -11,10 +11,15 @@ from openpyxl.chart.label import DataLabelList
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+# 输出目录由数据分析.py 配置；未设置时保持原行为，输出到程序所在目录。
+_输出目录 = os.environ.get('成绩分析输出目录') or os.path.dirname(os.path.abspath(__file__))
+os.makedirs(_输出目录, exist_ok=True)
+输出文件路径 = os.path.join(_输出目录, 输出文件路径)
 
 
 
-def _安全保存工作簿(wb, 路径='数据分析.xlsx'):
+
+def _安全保存工作簿(wb, 路径=输出文件路径):
     """先保存到同目录临时 xlsx，再重试替换目标文件，降低短暂文件占用导致的保存失败。"""
     临时路径 = 路径 + '.tmp.xlsx'
     try:
@@ -267,12 +272,12 @@ def parse_layer_config(layer_config, default_parallel_groups=2):
 def setup_direct_layers(layer_counts, df_all=None, layer_colors=None):
     from 数据分析 import 显示选项
 
-    wb = openpyxl.load_workbook('数据分析.xlsx')
+    wb = openpyxl.load_workbook(输出文件路径)
     ws = wb['分层设置']
     n = ws.max_column
 
     if df_all is None:
-        df_all = pd.read_excel('数据分析.xlsx', sheet_name='分层设置')
+        df_all = pd.read_excel(输出文件路径, sheet_name='分层设置')
 
     total_students = df_all.shape[0]
     current_pos = 0
@@ -307,19 +312,19 @@ def setup_direct_layers(layer_counts, df_all=None, layer_colors=None):
     if 显示选项.get('显示分层进度', True):
         print("="*50)
 
-    _安全保存工作簿(wb, '数据分析.xlsx')
+    _安全保存工作簿(wb, 输出文件路径)
     return total_students
 
 
 def setup_parallel_layers(layer_config, df_all=None, parallel_groups=2, layer_colors=None):
     from 数据分析 import 显示选项
 
-    wb = openpyxl.load_workbook('数据分析.xlsx')
+    wb = openpyxl.load_workbook(输出文件路径)
     ws = wb['分层设置']
     n = ws.max_column
 
     if df_all is None:
-        df_all = pd.read_excel('数据分析.xlsx', sheet_name='分层设置')
+        df_all = pd.read_excel(输出文件路径, sheet_name='分层设置')
 
     total_students = df_all.shape[0]
     df_students = df_all.iloc[:total_students].copy()
@@ -412,7 +417,7 @@ def setup_parallel_layers(layer_config, df_all=None, parallel_groups=2, layer_co
         print("="*60)
         print(f"总学生数: {total_students}, 已处理: {total_students}")
 
-    _安全保存工作簿(wb, '数据分析.xlsx')
+    _安全保存工作簿(wb, 输出文件路径)
     return total_students
 
 
@@ -587,14 +592,14 @@ def process_exam_data(考试名称, is_first=False):
     dfchushu = dfchushu.loc[:, colchushu]
 
     if is_first:
-        excel_writer = pd.ExcelWriter('数据分析.xlsx', engine='openpyxl')
+        excel_writer = pd.ExcelWriter(输出文件路径, engine='openpyxl')
     else:
-        excel_writer = pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='overlay')
+        excel_writer = pd.ExcelWriter(输出文件路径, mode='a', if_sheet_exists='overlay')
 
     with excel_writer as writer:
         dfchushu.to_excel(writer, sheet_name=_表格[0], index=False)
 
-    wb = openpyxl.load_workbook('数据分析.xlsx')
+    wb = openpyxl.load_workbook(输出文件路径)
     wbchushu = wb[_表格[0]]
     dchushu = max_rowbchushu = wbchushu.max_row
     max_columns = wbchushu.max_column
@@ -609,20 +614,20 @@ def process_exam_data(考试名称, is_first=False):
         wbchushu.cell(row=max_rowbchushu + 1, column=x, value=avg_x)
         wbchushu.cell(row=max_rowbchushu + 2, column=x, value=valuechushu[x - 1])
         wbchushu.cell(row=max_rowbchushu + 3, column=x, value=round(avg_x / valuechushu[x - 1], 5))
-    _安全保存工作簿(wb, '数据分析.xlsx')
+    _安全保存工作簿(wb, 输出文件路径)
 
-    dfchushu = pd.read_excel('数据分析.xlsx', sheet_name=_表格[0])
+    dfchushu = pd.read_excel(输出文件路径, sheet_name=_表格[0])
     dfchushu = dfchushu.sort_values(by=dchushu + 1, axis=1, ascending=False)
 
     if is_first:
-        excel_writer = pd.ExcelWriter('数据分析.xlsx', engine='openpyxl')
+        excel_writer = pd.ExcelWriter(输出文件路径, engine='openpyxl')
     else:
-        excel_writer = pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='overlay')
+        excel_writer = pd.ExcelWriter(输出文件路径, mode='a', if_sheet_exists='overlay')
 
     with excel_writer as writer:
         dfchushu.to_excel(writer, sheet_name=_表格[0], startcol=3, index=False)
 
-    wb = openpyxl.load_workbook('数据分析.xlsx')
+    wb = openpyxl.load_workbook(输出文件路径)
     wbchushu = wb[_表格[0]]
     dchushu = max_rowbchushu = wbchushu.max_row
     max_columns = wbchushu.max_column
@@ -718,20 +723,20 @@ def process_exam_data(考试名称, is_first=False):
     wbchushu.cell(row=max_rowbchushu, column=1, value=round(v11 / v21, 5) if v21 not in (None, 0) else 0)
     wbchushu.cell(row=max_rowbchushu, column=2, value=round(v12 / v22, 5) if v22 not in (None, 0) else 0)
     wbchushu.cell(row=max_rowbchushu, column=3, value=round(v13 / v23, 5) if v23 not in (None, 0) else 0)
-    _安全保存工作簿(wb, '数据分析.xlsx')
+    _安全保存工作簿(wb, 输出文件路径)
 
-    dfchushu = pd.read_excel('数据分析.xlsx', sheet_name=_表格[0])
+    dfchushu = pd.read_excel(输出文件路径, sheet_name=_表格[0])
     dfchushu = pd.concat([dfselchushu, dfchushu], axis=1, join="outer")
 
     if is_first:
-        excel_writer = pd.ExcelWriter('数据分析.xlsx', engine='openpyxl')
+        excel_writer = pd.ExcelWriter(输出文件路径, engine='openpyxl')
     else:
-        excel_writer = pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='replace')
+        excel_writer = pd.ExcelWriter(输出文件路径, mode='a', if_sheet_exists='replace')
 
     with excel_writer as writer:
         dfchushu.to_excel(writer, sheet_name=_表格[0], index=False)
 
-    wb = openpyxl.load_workbook('数据分析.xlsx')
+    wb = openpyxl.load_workbook(输出文件路径)
     wbchushu = wb[_表格[0]]
     dchushu = max_rowbchushu = wbchushu.max_row
     max_columns = wbchushu.max_column
@@ -892,7 +897,7 @@ def process_exam_data(考试名称, is_first=False):
     是否显示分层表 = 考试总表.get(考试名称, {}).get('对比', True)
     ws_layer.sheet_state = 'visible' if 是否显示分层表 else 'hidden'
 
-    _安全保存工作簿(wb, '数据分析.xlsx')
+    _安全保存工作簿(wb, 输出文件路径)
 
 
 def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
@@ -939,7 +944,7 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
     exam_columns = {}
     for item in normalized_tests:
         name = item['name']
-        raw = pd.read_excel('数据分析.xlsx', sheet_name=item['sheet'])
+        raw = pd.read_excel(输出文件路径, sheet_name=item['sheet'])
         marker = next((i for i, value in enumerate(raw.iloc[:, 0]) if str(value).strip() == '各项均分'), None)
         if marker is None:
             raise ValueError(f'工作表“{item["sheet"]}”中找不到“各项均分”行，请确认考试分段表已生成。')
@@ -1121,7 +1126,7 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
     merged = sort_df.drop(columns=临时排序列, errors='ignore').reset_index(drop=True)
 
     # 先保留完整排名，再按分界学号拆成左右两组用于分层设置。
-    with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
+    with pd.ExcelWriter(输出文件路径, mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
         merged.to_excel(writer, sheet_name='分层总排名', index=False)
 
     exclude_text = 分层排名配置.get('排除学号', [])
@@ -1136,7 +1141,7 @@ def _create_multi_test_layer_ranking(分层排名配置, 显示选项):
     layer_setting = pd.concat([group_a, group_b], axis=1)
     layer_setting.insert(len(group_a.columns), '分隔', None)
 
-    with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
+    with pd.ExcelWriter(输出文件路径, mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
         layer_setting.to_excel(writer, sheet_name='分层设置', index=False)
 
     if 显示选项.get('显示数据统计', True):
@@ -1190,7 +1195,7 @@ def create_layer_ranking():
     启用缺考赋分 = 缺考配置.get('启用', False)
 
     def extract_student_data(sheet_name, exam_prefix):
-        df = pd.read_excel('数据分析.xlsx', sheet_name=sheet_name)
+        df = pd.read_excel(输出文件路径, sheet_name=sheet_name)
         for i in range(len(df)):
             if df.iloc[i, 0] == '各项均分':
                 student_data = df.iloc[:i+2, [0, 1, 4, 5, 6]]
@@ -1361,10 +1366,10 @@ def create_layer_ranking():
 
     df = 按分层规则排序(df)
 
-    with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='overlay') as writer:
+    with pd.ExcelWriter(输出文件路径, mode='a', if_sheet_exists='overlay') as writer:
         df.to_excel(writer, sheet_name='分层总排名', index=False)
 
-    df = pd.read_excel('数据分析.xlsx', sheet_name='分层总排名')
+    df = pd.read_excel(输出文件路径, sheet_name='分层总排名')
 
     排除学号配置 = 分层排名配置.get('排除学号', [])
     if 排除学号配置:
@@ -1395,7 +1400,7 @@ def create_layer_ranking():
     df = pd.concat([df_a, df_b], axis=1)
     df.insert(9, '分隔', None)
 
-    with pd.ExcelWriter('数据分析.xlsx', mode='a', if_sheet_exists='overlay') as writer:
+    with pd.ExcelWriter(输出文件路径, mode='a', if_sheet_exists='overlay') as writer:
         df.to_excel(writer, sheet_name='分层设置', index=False)
 
     if 显示选项.get('显示数据统计', True):
@@ -1426,7 +1431,7 @@ def 录入数据(考试名称, is_first=False, apply_layers=False):
 
         print(f"\n正在应用分层设置 (模式: {layer_mode})...")
 
-        df_all = pd.read_excel('数据分析.xlsx', sheet_name='分层设置')
+        df_all = pd.read_excel(输出文件路径, sheet_name='分层设置')
 
         if layer_mode == 'direct':
             setup_direct_layers(layer_config, df_all)
@@ -1642,19 +1647,19 @@ def 生成排名变化(考试字典=None, 考试名称=None, 名单路径=None,
         print(f"  {列名}: 最多进步 {df_result[列名].max()} 名，最多退步 {df_result[列名].min()} 名")
 
     try:
-        if os.path.exists('数据分析.xlsx'):
-            with pd.ExcelWriter('数据分析.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        if os.path.exists(输出文件路径):
+            with pd.ExcelWriter(输出文件路径, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
                 df_result.to_excel(writer, sheet_name=输出sheet, index=False)
         else:
-            with pd.ExcelWriter('数据分析.xlsx', engine='openpyxl') as writer:
+            with pd.ExcelWriter(输出文件路径, engine='openpyxl') as writer:
                 df_result.to_excel(writer, sheet_name=输出sheet, index=False)
-        print(f"\n✅ 排名已写入 '数据分析.xlsx' 的 '{输出sheet}' Sheet")
+        print(f"\n✅ 排名已写入 输出文件路径 的 '{输出sheet}' Sheet")
         
         # ==================== 👇 新增：调整格式 ====================
         import openpyxl
         from openpyxl.styles import Alignment
         
-        wb_fmt = openpyxl.load_workbook('数据分析.xlsx')
+        wb_fmt = openpyxl.load_workbook(输出文件路径)
         if 输出sheet in wb_fmt.sheetnames:
             ws_fmt = wb_fmt[输出sheet]
             
@@ -1672,7 +1677,7 @@ def 生成排名变化(考试字典=None, 考试名称=None, 名单路径=None,
                         target_cell = ws_fmt.cell(row=row_idx, column=col_idx)
                         target_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             
-            _安全保存工作簿(wb_fmt, '数据分析.xlsx')
+            _安全保存工作簿(wb_fmt, 输出文件路径)
             print("  ✅ 已调整排名页对比列的宽度与自动换行")
         # ==========================================================
 
@@ -1761,12 +1766,12 @@ def 生成控制页(名单路径=None, 考试字典=None, 考试名称=None,
     val列表 = []
     for 分段名 in 分段列表:
         try:
-            df_tmp = pd.read_excel('数据分析.xlsx', sheet_name=分段名)
+            df_tmp = pd.read_excel(输出文件路径, sheet_name=分段名)
             val列表.append(df_tmp.iloc[-7].values)
         except:
             val列表.append([0, 0, 0, 0, 0, 0, 0])
 
-    wb = openpyxl.load_workbook('数据分析.xlsx')
+    wb = openpyxl.load_workbook(输出文件路径)
     if '控制页' in wb.sheetnames:
         del wb['控制页']
 
@@ -1916,7 +1921,7 @@ def 生成控制页(名单路径=None, 考试字典=None, 考试名称=None,
                     continue
 
                 try:
-                    df_exam = pd.read_excel('数据分析.xlsx', sheet_name=sheet_name)
+                    df_exam = pd.read_excel(输出文件路径, sheet_name=sheet_name)
                 except Exception as e:
                     print(f"  ⚠️ 读取 {sheet_name} 失败: {e}")
                     continue
@@ -2178,7 +2183,7 @@ def 生成控制页(名单路径=None, 考试字典=None, 考试名称=None,
                     continue
                 _sheet_name = _考试配置[_考试名]['表格'][0]
                 try:
-                    _df_exam = pd.read_excel('数据分析.xlsx', sheet_name=_sheet_name)
+                    _df_exam = pd.read_excel(输出文件路径, sheet_name=_sheet_name)
                     if '姓名' in _df_exam.columns:
                         _姓名索引 = _df_exam.drop_duplicates(subset=['姓名'], keep='first').set_index('姓名', drop=False)
                     else:
@@ -2376,7 +2381,7 @@ def 生成控制页(名单路径=None, 考试字典=None, 考试名称=None,
         print("\n  ⏭️ 综合学习建议已关闭，跳过生成。")
     # ==========================================================
 
-    _安全保存工作簿(wb, '数据分析.xlsx')
+    _安全保存工作簿(wb, 输出文件路径)
     print("✅ 控制页已生成完成！")
     return True
 
@@ -2385,7 +2390,7 @@ def 应用格式(边框颜色="FF000000", 边框样式="thin", 控制页边框�
     print("\n正在应用格式...")
 
     try:
-        wb = openpyxl.load_workbook('数据分析.xlsx')
+        wb = openpyxl.load_workbook(输出文件路径)
 
         border_style = Side(border_style=边框样式, color=边框颜色)
         border = Border(left=border_style, right=border_style, top=border_style, bottom=border_style)
@@ -2423,7 +2428,7 @@ def 应用格式(边框颜色="FF000000", 边框样式="thin", 控制页边框�
                     else:
                         cell.border = border
 
-        _安全保存工作簿(wb, '数据分析.xlsx')
+        _安全保存工作簿(wb, 输出文件路径)
         print("✅ 格式应用完成！")
         print(f"  普通页面边框: {边框颜色}")
         print(f"  控制页边框: {控制页边框颜色}")
