@@ -88,9 +88,16 @@ class ScoreAnalysisGUI:
         project = ttk.LabelFrame(outer, text="项目位置", padding=8)
         project.pack(fill="x", pady=(0, 9))
         self.project_var = tk.StringVar(value=str(self.project_dir))
+        self.output_dir_var = tk.StringVar(value=str(self.project_dir))
         ttk.Entry(project, textvariable=self.project_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(project, text="选择文件夹", command=self.choose_project).pack(side="left")
         ttk.Button(project, text="打开文件夹", command=self.open_project).pack(side="left", padx=(6, 0))
+
+        output_frame = ttk.LabelFrame(outer, text="文件输出目录", padding=8)
+        output_frame.pack(fill="x", pady=(0, 9))
+        ttk.Entry(output_frame, textvariable=self.output_dir_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Button(output_frame, text="选择目录", command=self.choose_output_dir).pack(side="left")
+        ttk.Button(output_frame, text="打开目录", command=self.open_output_dir).pack(side="left", padx=(6, 0))
 
         exam_frame = ttk.LabelFrame(outer, text="考试配置（双击开关列可切换；选中考试后可修改成绩文件）", padding=8)
         exam_frame.pack(fill="both", expand=True, pady=(0, 9))
@@ -141,7 +148,7 @@ class ScoreAnalysisGUI:
 
         footer = ttk.Label(
             outer,
-            text="提示：修改开关或路径后请先保存配置。运行前请关闭 Excel 中打开的“数据分析.xlsx”，避免文件被占用。",
+            text="提示：修改考试路径或输出目录后请先保存配置。结果文件名仍为“数据分析.xlsx”，运行前请关闭已打开的结果文件。",
             foreground="#555555",
         )
         footer.pack(fill="x", pady=(7, 0))
@@ -155,6 +162,30 @@ class ScoreAnalysisGUI:
             self.project_var.set(chosen)
             self.project_dir = Path(chosen)
             self.load_config()
+
+    def _read_output_dir(self, source):
+        tree = ast.parse(source)
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "文件输出目录" for t in node.targets):
+                try:
+                    value = ast.literal_eval(node.value)
+                    path = Path(value).expanduser()
+                    return str(path if path.is_absolute() else (self._project_path() / path).resolve())
+                except Exception:
+                    break
+        return str(self._project_path())
+
+    def choose_output_dir(self):
+        chosen = filedialog.askdirectory(title="选择结果文件输出目录", initialdir=self.output_dir_var.get() or str(self._project_path()))
+        if chosen:
+            self.output_dir_var.set(chosen)
+
+    def open_output_dir(self):
+        path = Path(self.output_dir_var.get()).expanduser()
+        if not path.exists():
+            messagebox.showinfo("目录不存在", f"输出目录尚不存在：\\n{path}\\n运行时会自动创建。")
+            return
+        self._open_path(path)
 
     def open_project(self):
         path = self._project_path()
@@ -181,6 +212,7 @@ class ScoreAnalysisGUI:
             return
         try:
             self.source, self.exam_node, self.exams = read_exam_config(path)
+            self.output_dir_var.set(self._read_output_dir(self.source))
             self.project_dir = self._project_path()
             self._refresh_tree()
             self._append_log(f"已载入配置：{path}")
@@ -248,7 +280,21 @@ class ScoreAnalysisGUI:
         try:
             current_source, node, _ = read_exam_config(path)
             save_exam_config(path, current_source, node, self.exams)
+            saved_source = Path(path).read_text(encoding="utf-8-sig")
+            tree = ast.parse(saved_source)
+            output_node = next((n for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "文件输出目录" for t in n.targets)), None)
+            if output_node is None:
+                raise ValueError("数据分析.py 中找不到“文件输出目录”配置项。")
+            selected = Path(self.output_dir_var.get()).expanduser().resolve()
+            try:
+                stored_path = os.path.relpath(str(selected), str(self._project_path()))
+            except ValueError:
+                stored_path = str(selected)
+            lines = saved_source.splitlines(keepends=True)
+            lines[output_node.lineno - 1:output_node.end_lineno] = ["文件输出目录 = " + repr(stored_path) + "\n"]
+            Path(path).write_text("".join(lines), encoding="utf-8-sig")
             self.source, self.exam_node, self.exams = read_exam_config(path)
+            self.output_dir_var.set(self._read_output_dir(self.source))
             self._refresh_tree()
             self._append_log("考试配置已保存到 数据分析.py")
             self.status_var.set("配置已保存")
@@ -328,7 +374,7 @@ class ScoreAnalysisGUI:
         self.log.configure(state="disabled")
 
     def open_output(self):
-        path = self._project_path() / OUTPUT_FILE
+        path = Path(self.output_dir_var.get()).expanduser() / OUTPUT_FILE
         if not path.exists():
             messagebox.showinfo("结果尚未生成", "还没有找到 数据分析.xlsx，请先运行程序。")
             return
