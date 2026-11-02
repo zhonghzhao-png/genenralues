@@ -1776,6 +1776,7 @@ def 生成控制页(名单路径=None, 考试字典=None, 考试名称=None,
         del wb['控制页']
 
     sheet = wb.create_sheet('控制页')
+    sheet.sheet_state = 'visible'
     wk = wb['控制页']
 
     for row in dataframe_to_rows(mingdan, index=False, header=True):
@@ -2381,6 +2382,9 @@ def 生成控制页(名单路径=None, 考试字典=None, 考试名称=None,
         print("\n  ⏭️ 综合学习建议已关闭，跳过生成。")
     # ==========================================================
 
+    if '控制页' not in wb.sheetnames:
+        raise RuntimeError('控制页生成后未能在工作簿中找到“控制页”工作表。')
+    wb['控制页'].sheet_state = 'visible'
     _安全保存工作簿(wb, 输出文件路径)
     print("✅ 控制页已生成完成！")
     return True
