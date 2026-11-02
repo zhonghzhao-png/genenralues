@@ -14,7 +14,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 # 输出目录由数据分析.py 配置；未设置时保持原行为，输出到程序所在目录。
 _输出目录 = os.environ.get('成绩分析输出目录') or os.path.dirname(os.path.abspath(__file__))
 os.makedirs(_输出目录, exist_ok=True)
-输出文件路径 = os.path.join(_输出目录, 输出文件路径)
+输出文件路径 = os.path.join(_输出目录, '数据分析.xlsx')
 
 
 
